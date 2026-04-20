@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>My resources</h1>
+        
+        <div class="groups">
+            <button class="group-btn active" onclick="filterGroup('all', this)">All</button>
+            {% for group in groups %}
+            <button class="group-btn" onclick="filterGroup('{{ group }}', this)">{{ group }}</button>
+            {% endfor %}
+        </div>
+
+        <div class="grid" id="linksGrid">
+            {% for link in links %}
+            <a href="{{ link.url }}" class="card" data-group="{{ link.group }}" target="_blank" title="{{ link.description if link.description else link.title }}">
+                <img src="/api/icon?id={{ link.id }}" alt="icon">
+                <div>
+                    <h3>{{ link.title }}</h3>
+                    <span class="card-group">{{ link.group }}</span>
+                </div>
+                {% if is_admin %}
+                <div class="card-actions" onclick="event.preventDefault();">
+                    <button class="action-btn" onclick="postAction('move_up', '{{ link.id }}')" title="Left">←</button>
+                    <button class="action-btn" onclick="postAction('move_down', '{{ link.id }}')" title="Right">→</button>
+                    <button class="action-btn" 
+                            data-id="{{ link.id }}" data-title="{{ link.title }}" data-url="{{ link.url }}" 
+                            data-group="{{ link.group }}" data-desc="{{ link.description|default('') }}" 
+                            data-custom-icon="{{ link.custom_icon|default('') }}"
+                            onclick="openEditModal(this)" title="Edit">✎</button>
+                    <button class="action-btn delete" onclick="if(confirm('Delete?')) postAction('delete', '{{ link.id }}')" title="Delete">✕</button>
+                </div>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% if is_admin %}
+        <div style="position: fixed; bottom: 2rem; right: 6rem; z-index: 10;">
+            <a href="/logout" class="admin-btn-float" style="position: relative; right: 0; bottom: 0;">🚪</a>
+        </div>
+        <div class="admin-btn-float" onclick="openAddModal()">➕</div>
+    {% else %}
+        <div class="admin-btn-float" onclick="document.getElementById('loginModal').classList.add('active')">🔒</div>
+    {% endif %}
+
+    <div class="modal" id="loginModal">
+        <div class="modal-content">
+            <h2>Admin panel</h2>
+            <form action="/login" method="POST">
+                <input type="password" name="password" placeholder="Password" required autofocus>
+                <button type="submit" class="btn" style="margin-top: 1rem;">Login</button>
+                <button type="button" class="btn close-btn" onclick="document.getElementById('loginModal').classList.remove('active')">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="editModal">
+        <div class="modal-content">
+            <h2 id="modalTitle">Add resource</h2>
+            <form action="/api/action" method="POST" id="editForm" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="save">
+                <input type="hidden" name="id" id="formId">
+                <input type="text" name="title" id="formTitle" placeholder="Name (e.g.: Proxmox)" required>
+                <input type="url" name="url" id="formUrl" placeholder="URL (e.g.: https://example.com)" required>
+                <input type="text" name="group" id="formGroup" placeholder="Group (e.g.: Monitorings)" required>
+                <input type="text" name="description" id="formDescription" placeholder="Description (optional)">
+                
+                <div class="checkbox-group">
+                    <input type="checkbox" name="use_custom_icon" id="formUseCustomIcon">
+                    <label for="formUseCustomIcon">Use custom icon</label>
+                </div>
+                <input type="file" name="icon_file" id="formIconFile" accept="image/*" style="display: none; padding: 0; background: transparent; border: none;">
+
+                <button type="submit" class="btn" style="margin-top: 1rem;">Save</button>
+                <button type="button" class="btn close-btn" onclick="document.getElementById('editModal').classList.remove('active')">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function filterGroup(group, btnElement) {
+            document.querySelectorAll('.group-btn').forEach(btn => btn.classList.remove('active'));
+            btnElement.classList.add('active');
+            document.querySelectorAll('.card').forEach(card => {
+                card.style.display = (group === 'all' || card.dataset.group === group) ? 'flex' : 'none';
+            });
+        }
+
+        function postAction(action, id) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/api/action';
+            ['action', 'id'].forEach(name => {
+                const input = document.createElement('input');
+                input.name = name; input.value = name === 'action' ? action : id;
+                form.appendChild(input);
+            });
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        // Logic to show the file upload button
+        document.getElementById('formUseCustomIcon').addEventListener('change', function() {
+            document.getElementById('formIconFile').style.display = this.checked ? 'block' : 'none';
+        });
+
+        function openAddModal() {
+            document.getElementById('modalTitle').innerText = 'Add resource';
+            document.getElementById('formId').value = '';
+            document.getElementById('formTitle').value = '';
+            document.getElementById('formUrl').value = '';
+            document.getElementById('formGroup').value = '';
+            document.getElementById('formDescription').value = '';
+            document.getElementById('formUseCustomIcon').checked = false;
+            document.getElementById('formIconFile').style.display = 'none';
+            document.getElementById('editModal').classList.add('active');
+        }
+
+        function openEditModal(btnElement) {
+            const data = btnElement.dataset;
+            document.getElementById('modalTitle').innerText = 'Edit resource';
+            document.getElementById('formId').value = data.id;
+            document.getElementById('formTitle').value = data.title;
+            document.getElementById('formUrl').value = data.url;
+            document.getElementById('formGroup').value = data.group;
+            document.getElementById('formDescription').value = data.desc;
+            
+            const hasCustom = data.customIcon && data.customIcon !== 'None' && data.customIcon !== '';
+            document.getElementById('formUseCustomIcon').checked = hasCustom;
+            document.getElementById('formIconFile').style.display = hasCustom ? 'block' : 'none';
+            
+            document.getElementById('editModal').classList.add('active');
+        }
+    </script>
+</body>
+</html>
