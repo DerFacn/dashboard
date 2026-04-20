@@ -1,15 +1,19 @@
 services:
   dashboard:
     image: python:3.11-slim
-    container_name: dashboard
+    container_name: selfhosted_board
     ports:
       - "5555:8000"
     volumes:
       - ./app.py:/app/app.py
+      - ./core:/app/core
       - ./data:/app/data
     working_dir: /app
     environment:
-      - ADMIN_PASSWORD=SuperSecret
+      - ADMIN_PASSWORD=supersecret
       - FLASK_SECRET_KEY=my-super-secret-session-key
+      # Customisation
+      - PAGE_TITLE=Home Server
+      - DASH_TITLE=My Services
     command: sh -c "pip install --no-cache-dir flask gunicorn requests beautifulsoup4 werkzeug && gunicorn -w 1 -b 0.0.0.0:8000 app:app"
     restart: unless-stopped

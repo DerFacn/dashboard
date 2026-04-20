@@ -13,20 +13,36 @@ main_bp = Blueprint('main', __name__)
 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
 
-# ФІКС: Робимо абсолютний шлях до кореня проекту, піднімаючись на рівень вище папки core
+# Read custom titles from environment variables, fallback to defaults
+PAGE_TITLE = os.environ.get('PAGE_TITLE', 'My Dashboard')
+DASH_TITLE = os.environ.get('DASH_TITLE', 'My resources')
+
+# Absolute paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 DATA_FILE = os.path.join(DATA_DIR, 'links.json')
 ICONS_DIR = os.path.join(DATA_DIR, 'icons')
+STATIC_DIR = os.path.join(BASE_DIR, 'core', 'static')
 
 FALLBACK_ICON = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#cdd6f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'''
+
+# Custom SVG Favicon (Dashboard grid icon)
+FAVICON_SVG_CONTENT = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#89b4fa"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/></svg>'''
 
 def init_env():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(ICONS_DIR, exist_ok=True)
+    os.makedirs(STATIC_DIR, exist_ok=True)
+    
     if not os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'w') as f:
             json.dump([], f)
+            
+    # Auto-generate favicon if it doesn't exist
+    favicon_path = os.path.join(STATIC_DIR, 'favicon.svg')
+    if not os.path.exists(favicon_path):
+        with open(favicon_path, 'w', encoding='utf-8') as f:
+            f.write(FAVICON_SVG_CONTENT)
 
 def load_data():
     init_env()
@@ -42,7 +58,13 @@ def save_data(data):
 def index():
     links = load_data()
     groups = sorted(list(set(link.get('group', 'Other') for link in links if link.get('group'))))
-    return render_template('index.html', links=links, groups=groups, is_admin=session.get('admin', False))
+    # Pass the titles to the template
+    return render_template('index.html', 
+                           links=links, 
+                           groups=groups, 
+                           is_admin=session.get('admin', False),
+                           page_title=PAGE_TITLE,
+                           dash_title=DASH_TITLE)
 
 @main_bp.route('/login', methods=['POST'])
 def login():
@@ -64,14 +86,12 @@ def get_icon():
     if not link:
         return Response(FALLBACK_ICON, mimetype='image/svg+xml')
 
-    # First, check if there is a custom icon and if it is enabled
     custom_icon = link.get('custom_icon')
     if custom_icon:
         custom_path = os.path.join(ICONS_DIR, custom_icon)
         if os.path.exists(custom_path):
             return send_file(custom_path)
 
-    # If there is no custom icon, scrape from the URL
     url = link.get('url')
     if not url:
         return Response(FALLBACK_ICON, mimetype='image/svg+xml')
@@ -119,7 +139,6 @@ def api_action():
         existing_link = next((l for l in links if l['id'] == link_id), None)
         custom_icon_filename = None
 
-        # Handle custom icon upload
         if use_custom:
             icon_file = request.files.get('icon_file')
             if icon_file and icon_file.filename:
