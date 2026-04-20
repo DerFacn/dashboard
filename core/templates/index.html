@@ -4,10 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ page_title }}</title>
-    
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    
+    <style>
+        :root {
+            --bg: {{ theme.bg }};
+            --card: {{ theme.card }};
+            --text: {{ theme.text }};
+            --accent: {{ theme.accent }};
+        }
+        body {
+            {% if theme.bg_mode == 'image' and theme.bg_image %}
+                background-image: url('/api/bg?img={{ theme.bg_image }}');
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+            {% elif theme.bg_mode == 'gradient' and theme.gradient %}
+                background: {{ theme.gradient }};
+                background-attachment: fixed;
+            {% else %}
+                background-color: var(--bg);
+            {% endif %}
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -46,10 +66,11 @@
     </div>
 
     {% if is_admin %}
-        <div style="position: fixed; bottom: 2rem; right: 6rem; z-index: 10;">
-            <a href="/logout" class="admin-btn-float" style="position: relative; right: 0; bottom: 0;">🚪</a>
+        <div style="position: fixed; bottom: 2rem; right: 2rem; z-index: 10; display: flex; gap: 1rem;">
+            <a href="/logout" class="admin-btn-float" style="position: static; box-shadow: none; border-color: transparent;">🚪</a>
+            <div class="admin-btn-float" style="position: static; box-shadow: none; border-color: transparent;" onclick="document.getElementById('themeModal').classList.add('active')">🎨</div>
+            <div class="admin-btn-float" style="position: static; box-shadow: none; border-color: transparent;" onclick="openAddModal()">➕</div>
         </div>
-        <div class="admin-btn-float" onclick="openAddModal()">➕</div>
     {% else %}
         <div class="admin-btn-float" onclick="document.getElementById('loginModal').classList.add('active')">🔒</div>
     {% endif %}
@@ -88,6 +109,79 @@
         </div>
     </div>
 
+    {% if is_admin %}
+    <div class="modal" id="themeModal">
+        <div class="modal-content" style="width: 400px;">
+            <h2>Theme Settings</h2>
+
+            <form action="/api/theme" method="POST" style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <input type="hidden" name="action" value="switch_profile">
+                <label style="font-size: 0.9rem; color: var(--text);">Load Profile:</label>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                    <select name="profile_name" id="profileSelectDropdown" style="flex-grow: 1;">
+                        {% for p_name in profiles.keys() %}
+                        <option value="{{ p_name }}" {% if p_name == active_profile_name %}selected{% endif %}>{{ p_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn" style="width: auto; padding: 0.5rem 1rem;">Load</button>
+                    <button type="button" class="btn danger" style="width: auto; padding: 0.5rem 1rem;" onclick="submitDeleteProfile()">Del</button>
+                </div>
+            </form>
+
+            <form action="/api/theme" method="POST" id="deleteProfileForm" style="display: none;">
+                <input type="hidden" name="action" value="delete_profile">
+                <input type="hidden" name="profile_name" id="deleteProfileNameInput">
+            </form>
+
+            <form action="/api/theme" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="save_profile">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div>
+                        <label style="font-size: 0.8rem;">Main Background</label>
+                        <input type="color" name="bg_color" value="{{ theme.bg }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem;">Card Background</label>
+                        <input type="color" name="card_color" value="{{ theme.card }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem;">Text Color</label>
+                        <input type="color" name="text_color" value="{{ theme.text }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem;">Accent (Hover)</label>
+                        <input type="color" name="accent_color" value="{{ theme.accent }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
+                    </div>
+                </div>
+
+                <label style="font-size: 0.9rem;">Background Mode</label>
+                <select name="bg_mode" id="bgModeSelect" style="margin-top: 0.5rem; margin-bottom: 1rem;" onchange="toggleBgMode()">
+                    <option value="solid" {% if theme.bg_mode == 'solid' %}selected{% endif %}>Solid Color</option>
+                    <option value="gradient" {% if theme.bg_mode == 'gradient' %}selected{% endif %}>Gradient</option>
+                    <option value="image" {% if theme.bg_mode == 'image' %}selected{% endif %}>Image</option>
+                </select>
+
+                <div id="gradientInput" style="display: {% if theme.bg_mode == 'gradient' %}block{% else %}none{% endif %}; margin-bottom: 1rem;">
+                    <label style="font-size: 0.9rem;">Gradient CSS</label>
+                    <input type="text" name="gradient_css" value="{{ theme.gradient }}" placeholder="linear-gradient(45deg, #1e1e2e, #89b4fa)" style="margin-top: 0.5rem;">
+                </div>
+
+                <div id="imageInput" style="display: {% if theme.bg_mode == 'image' %}block{% else %}none{% endif %}; margin-bottom: 1rem;">
+                    <label style="font-size: 0.9rem;">Upload Background Image</label>
+                    <input type="file" name="bg_file" accept="image/*" style="padding: 0; background: transparent; border: none; margin-top: 0.5rem;">
+                </div>
+
+                <label style="font-size: 0.9rem;">Save as Profile Name</label>
+                <input type="text" name="profile_name" value="{{ active_profile_name }}" required style="margin-top: 0.5rem; margin-bottom: 1rem;">
+
+                <button type="submit" class="btn">Save Profile</button>
+                <button type="button" class="btn close-btn" onclick="document.getElementById('themeModal').classList.remove('active')">Cancel</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     <script>
         function filterGroup(group, btnElement) {
             document.querySelectorAll('.group-btn').forEach(btn => btn.classList.remove('active'));
@@ -110,10 +204,13 @@
             form.submit();
         }
 
-        // Logic to show the file upload button
-        document.getElementById('formUseCustomIcon').addEventListener('change', function() {
-            document.getElementById('formIconFile').style.display = this.checked ? 'block' : 'none';
-        });
+        // Logic for icon file upload visibility
+        const customIconCheckbox = document.getElementById('formUseCustomIcon');
+        if (customIconCheckbox) {
+            customIconCheckbox.addEventListener('change', function() {
+                document.getElementById('formIconFile').style.display = this.checked ? 'block' : 'none';
+            });
+        }
 
         function openAddModal() {
             document.getElementById('modalTitle').innerText = 'Add resource';
@@ -141,6 +238,25 @@
             document.getElementById('formIconFile').style.display = hasCustom ? 'block' : 'none';
             
             document.getElementById('editModal').classList.add('active');
+        }
+
+        // Theme Modal Logic
+        function toggleBgMode() {
+            const mode = document.getElementById('bgModeSelect').value;
+            document.getElementById('gradientInput').style.display = mode === 'gradient' ? 'block' : 'none';
+            document.getElementById('imageInput').style.display = mode === 'image' ? 'block' : 'none';
+        }
+
+        function submitDeleteProfile() {
+            const profileName = document.getElementById('profileSelectDropdown').value;
+            if (profileName === 'Dark' || profileName === 'Light') {
+                alert("Cannot delete default profiles!");
+                return;
+            }
+            if(confirm('Delete profile "' + profileName + '"?')) {
+                document.getElementById('deleteProfileNameInput').value = profileName;
+                document.getElementById('deleteProfileForm').submit();
+            }
         }
     </script>
 </body>

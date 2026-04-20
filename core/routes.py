@@ -23,20 +23,33 @@ DATA_DIR = os.path.join(BASE_DIR, 'data')
 DATA_FILE = os.path.join(DATA_DIR, 'links.json')
 ICONS_DIR = os.path.join(DATA_DIR, 'icons')
 STATIC_DIR = os.path.join(BASE_DIR, 'core', 'static')
+SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+BGS_DIR = os.path.join(DATA_DIR, 'backgrounds')
 
 FALLBACK_ICON = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#cdd6f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'''
-
-# Custom SVG Favicon (Dashboard grid icon)
 FAVICON_SVG_CONTENT = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#89b4fa"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/></svg>'''
 
 def init_env():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(ICONS_DIR, exist_ok=True)
     os.makedirs(STATIC_DIR, exist_ok=True)
+    os.makedirs(BGS_DIR, exist_ok=True)
     
     if not os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'w') as f:
             json.dump([], f)
+            
+    # Initialize default theme settings if not present
+    if not os.path.exists(SETTINGS_FILE):
+        default_settings = {
+            "active_profile": "Dark",
+            "profiles": {
+                "Dark": {"bg": "#1e1e2e", "card": "#313244", "text": "#cdd6f4", "accent": "#89b4fa", "bg_mode": "solid", "gradient": "", "bg_image": ""},
+                "Light": {"bg": "#eff1f5", "card": "#e6e9ef", "text": "#4c4f69", "accent": "#1e66f5", "bg_mode": "solid", "gradient": "", "bg_image": ""}
+            }
+        }
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(default_settings, f)
             
     # Auto-generate favicon if it doesn't exist
     favicon_path = os.path.join(STATIC_DIR, 'favicon.svg')
@@ -54,17 +67,32 @@ def save_data(data):
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
+def load_settings():
+    init_env()
+    with open(SETTINGS_FILE, 'r') as f:
+        return json.load(f)
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f, indent=4)
+
 @main_bp.route('/')
 def index():
     links = load_data()
     groups = sorted(list(set(link.get('group', 'Other') for link in links if link.get('group'))))
-    # Pass the titles to the template
+    settings = load_settings()
+    active_profile_name = settings.get('active_profile', 'Dark')
+    theme = settings['profiles'].get(active_profile_name, settings['profiles']['Dark'])
+    
     return render_template('index.html', 
                            links=links, 
                            groups=groups, 
                            is_admin=session.get('admin', False),
                            page_title=PAGE_TITLE,
-                           dash_title=DASH_TITLE)
+                           dash_title=DASH_TITLE,
+                           theme=theme,
+                           profiles=settings['profiles'],
+                           active_profile_name=active_profile_name)
 
 @main_bp.route('/login', methods=['POST'])
 def login():
@@ -119,6 +147,66 @@ def get_icon():
         pass
 
     return Response(FALLBACK_ICON, mimetype='image/svg+xml')
+
+@main_bp.route('/api/bg')
+def get_bg():
+    img = request.args.get('img')
+    if not img:
+        return Response("Not found", 404)
+    path = os.path.join(BGS_DIR, secure_filename(img))
+    if os.path.exists(path):
+        return send_file(path)
+    return Response("Not found", 404)
+
+@main_bp.route('/api/theme', methods=['POST'])
+def api_theme():
+    if not session.get('admin'):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+    
+    action = request.form.get('action')
+    settings = load_settings()
+
+    if action == 'save_profile':
+        profile_name = request.form.get('profile_name')
+        bg_mode = request.form.get('bg_mode')
+        
+        # Determine background image handling
+        bg_image = settings['profiles'].get(profile_name, {}).get('bg_image', '')
+        if bg_mode == 'image':
+            bg_file = request.files.get('bg_file')
+            if bg_file and bg_file.filename:
+                ext = os.path.splitext(secure_filename(bg_file.filename))[1]
+                bg_filename = f"bg_{uuid.uuid4().hex}{ext}"
+                bg_file.save(os.path.join(BGS_DIR, bg_filename))
+                bg_image = bg_filename
+
+        new_profile = {
+            "bg": request.form.get('bg_color'),
+            "card": request.form.get('card_color'),
+            "text": request.form.get('text_color'),
+            "accent": request.form.get('accent_color'),
+            "bg_mode": bg_mode,
+            "gradient": request.form.get('gradient_css'),
+            "bg_image": bg_image
+        }
+        
+        settings['profiles'][profile_name] = new_profile
+        settings['active_profile'] = profile_name
+
+    elif action == 'switch_profile':
+        profile_name = request.form.get('profile_name')
+        if profile_name in settings['profiles']:
+            settings['active_profile'] = profile_name
+
+    elif action == 'delete_profile':
+        profile_name = request.form.get('profile_name')
+        if profile_name in settings['profiles'] and profile_name not in ['Dark', 'Light']:
+            del settings['profiles'][profile_name]
+            if settings['active_profile'] == profile_name:
+                settings['active_profile'] = 'Dark'
+
+    save_settings(settings)
+    return redirect(url_for('main.index'))
 
 @main_bp.route('/api/action', methods=['POST'])
 def api_action():
