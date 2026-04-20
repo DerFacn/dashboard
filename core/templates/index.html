@@ -27,11 +27,52 @@
                 background-color: var(--bg);
             {% endif %}
         }
+        
+        /* Стилі для нових фіч */
+        #searchInput {
+            width: 100%;
+            max-width: 450px;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            background: var(--card);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text);
+            padding: 0.8rem 1.2rem;
+            border-radius: 20px;
+            font-size: 1rem;
+            transition: 0.3s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        #searchInput:focus { outline: none; border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+        .status-dot {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--text);
+            opacity: 0.3; /* Сірий, поки йде завантаження */
+            transition: 0.3s ease;
+            z-index: 2;
+        }
+        .status-dot.up { background-color: #a6e3a1; box-shadow: 0 0 8px #a6e3a1; opacity: 1; }
+        .status-dot.down { background-color: #fab387; box-shadow: 0 0 8px #fab387; opacity: 1; }
+
+        .card.hidden-card {
+            opacity: 0.4;
+            filter: grayscale(60%);
+            border-style: dashed;
+        }
+        .card.hidden-card:hover { opacity: 0.8; filter: grayscale(0%); }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>{{ dash_title }}</h1>
+
+        
+        <input type="text" id="searchInput" placeholder="Search.." onkeyup="handleSearch()">
         
         <div class="groups">
             <button class="group-btn active" onclick="filterGroup('all', this)">All</button>
@@ -42,7 +83,11 @@
 
         <div class="grid" id="linksGrid">
             {% for link in links %}
-            <a href="{{ link.url }}" class="card" data-group="{{ link.group }}" target="_blank" title="{{ link.description if link.description else link.title }}">
+            {% if is_admin or not link.is_hidden %}
+            <a href="{{ link.url }}" class="card {% if link.is_hidden %}hidden-card{% endif %}" data-group="{{ link.group }}" data-desc="{{ link.description }}" data-id="{{ link.id }}" target="_blank" title="{{ link.description if link.description else link.title }}" {% if is_admin %}draggable="true"{% endif %}>
+                
+                <div class="status-dot" data-url="{{ link.url }}"></div>
+
                 <img src="/api/icon?id={{ link.id }}" alt="icon">
                 <div>
                     <h3>{{ link.title }}</h3>
@@ -50,17 +95,17 @@
                 </div>
                 {% if is_admin %}
                 <div class="card-actions" onclick="event.preventDefault();">
-                    <button class="action-btn" onclick="postAction('move_up', '{{ link.id }}')" title="Left">←</button>
-                    <button class="action-btn" onclick="postAction('move_down', '{{ link.id }}')" title="Right">→</button>
                     <button class="action-btn" 
                             data-id="{{ link.id }}" data-title="{{ link.title }}" data-url="{{ link.url }}" 
                             data-group="{{ link.group }}" data-desc="{{ link.description|default('') }}" 
                             data-custom-icon="{{ link.custom_icon|default('') }}"
+                            data-hidden="{{ 'true' if link.is_hidden else 'false' }}"
                             onclick="openEditModal(this)" title="Edit">✎</button>
                     <button class="action-btn delete" onclick="if(confirm('Delete?')) postAction('delete', '{{ link.id }}')" title="Delete">✕</button>
                 </div>
                 {% endif %}
             </a>
+            {% endif %}
             {% endfor %}
         </div>
     </div>
@@ -97,11 +142,16 @@
                 <input type="text" name="group" id="formGroup" placeholder="Group (e.g.: Monitorings)" required>
                 <input type="text" name="description" id="formDescription" placeholder="Description (optional)">
                 
-                <div class="checkbox-group">
+                <div class="checkbox-group" style="margin-top: 1rem;">
                     <input type="checkbox" name="use_custom_icon" id="formUseCustomIcon">
-                    <label for="formUseCustomIcon">Use custom icon</label>
+                    <label for="formUseCustomIcon">Custom icon</label>
                 </div>
                 <input type="file" name="icon_file" id="formIconFile" accept="image/*" style="display: none; padding: 0; background: transparent; border: none;">
+
+                <div class="checkbox-group" style="margin-top: 0.5rem; color: var(--danger);">
+                    <input type="checkbox" name="is_hidden" id="formIsHidden">
+                    <label for="formIsHidden">Hide from dashboard</label>
+                </div>
 
                 <button type="submit" class="btn" style="margin-top: 1rem;">Save</button>
                 <button type="button" class="btn close-btn" onclick="document.getElementById('editModal').classList.remove('active')">Cancel</button>
@@ -112,11 +162,11 @@
     {% if is_admin %}
     <div class="modal" id="themeModal">
         <div class="modal-content" style="width: 400px;">
-            <h2>Theme Settings</h2>
+            <h2>Theme settings</h2>
 
             <form action="/api/theme" method="POST" style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
                 <input type="hidden" name="action" value="switch_profile">
-                <label style="font-size: 0.9rem; color: var(--text);">Load Profile:</label>
+                <label style="font-size: 0.9rem; color: var(--text);">Load profile:</label>
                 <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
                     <select name="profile_name" id="profileSelectDropdown" style="flex-grow: 1;">
                         {% for p_name in profiles.keys() %}
@@ -138,44 +188,44 @@
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                     <div>
-                        <label style="font-size: 0.8rem;">Main Background</label>
+                        <label style="font-size: 0.8rem;">Background</label>
                         <input type="color" name="bg_color" value="{{ theme.bg }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
                     </div>
                     <div>
-                        <label style="font-size: 0.8rem;">Card Background</label>
+                        <label style="font-size: 0.8rem;">Cards</label>
                         <input type="color" name="card_color" value="{{ theme.card }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
                     </div>
                     <div>
-                        <label style="font-size: 0.8rem;">Text Color</label>
+                        <label style="font-size: 0.8rem;">Text</label>
                         <input type="color" name="text_color" value="{{ theme.text }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
                     </div>
                     <div>
-                        <label style="font-size: 0.8rem;">Accent (Hover)</label>
+                        <label style="font-size: 0.8rem;">Primary color</label>
                         <input type="color" name="accent_color" value="{{ theme.accent }}" style="height: 35px; padding: 0; border: none; cursor: pointer;">
                     </div>
                 </div>
 
-                <label style="font-size: 0.9rem;">Background Mode</label>
+                <label style="font-size: 0.9rem;">Background type</label>
                 <select name="bg_mode" id="bgModeSelect" style="margin-top: 0.5rem; margin-bottom: 1rem;" onchange="toggleBgMode()">
-                    <option value="solid" {% if theme.bg_mode == 'solid' %}selected{% endif %}>Solid Color</option>
+                    <option value="solid" {% if theme.bg_mode == 'solid' %}selected{% endif %}>Color</option>
                     <option value="gradient" {% if theme.bg_mode == 'gradient' %}selected{% endif %}>Gradient</option>
                     <option value="image" {% if theme.bg_mode == 'image' %}selected{% endif %}>Image</option>
                 </select>
 
                 <div id="gradientInput" style="display: {% if theme.bg_mode == 'gradient' %}block{% else %}none{% endif %}; margin-bottom: 1rem;">
-                    <label style="font-size: 0.9rem;">Gradient CSS</label>
+                    <label style="font-size: 0.9rem;">CSS Gradient</label>
                     <input type="text" name="gradient_css" value="{{ theme.gradient }}" placeholder="linear-gradient(45deg, #1e1e2e, #89b4fa)" style="margin-top: 0.5rem;">
                 </div>
 
                 <div id="imageInput" style="display: {% if theme.bg_mode == 'image' %}block{% else %}none{% endif %}; margin-bottom: 1rem;">
-                    <label style="font-size: 0.9rem;">Upload Background Image</label>
+                    <label style="font-size: 0.9rem;">Upload image</label>
                     <input type="file" name="bg_file" accept="image/*" style="padding: 0; background: transparent; border: none; margin-top: 0.5rem;">
                 </div>
 
-                <label style="font-size: 0.9rem;">Save as Profile Name</label>
+                <label style="font-size: 0.9rem;">Save with name</label>
                 <input type="text" name="profile_name" value="{{ active_profile_name }}" required style="margin-top: 0.5rem; margin-bottom: 1rem;">
 
-                <button type="submit" class="btn">Save Profile</button>
+                <button type="submit" class="btn">Save profile</button>
                 <button type="button" class="btn close-btn" onclick="document.getElementById('themeModal').classList.remove('active')">Cancel</button>
             </form>
         </div>
@@ -183,14 +233,100 @@
     {% endif %}
 
     <script>
+        let currentGroup = 'all';
+
+        // Логіка Пошуку та Фільтрів
         function filterGroup(group, btnElement) {
             document.querySelectorAll('.group-btn').forEach(btn => btn.classList.remove('active'));
             btnElement.classList.add('active');
+            currentGroup = group;
+            applyFilters();
+        }
+
+        function handleSearch() {
+            applyFilters();
+        }
+
+        function applyFilters() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
             document.querySelectorAll('.card').forEach(card => {
-                card.style.display = (group === 'all' || card.dataset.group === group) ? 'flex' : 'none';
+                const title = card.querySelector('h3').innerText.toLowerCase();
+                const desc = card.dataset.desc ? card.dataset.desc.toLowerCase() : '';
+                const group = card.dataset.group;
+                
+                const matchesSearch = title.includes(query) || desc.includes(query);
+                const matchesGroup = (currentGroup === 'all' || group === currentGroup);
+                
+                card.style.display = (matchesSearch && matchesGroup) ? 'flex' : 'none';
             });
         }
 
+        // Асинхронна перевірка статусів сайтів
+        document.addEventListener("DOMContentLoaded", function() {
+            document.querySelectorAll('.status-dot').forEach(dot => {
+                const url = dot.dataset.url;
+                fetch(`/api/status?url=${encodeURIComponent(url)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        dot.classList.add(data.status); // Додає клас up або down
+                    })
+                    .catch(() => {
+                        dot.classList.add('down');
+                    });
+            });
+        });
+
+        // Drag and Drop логіка
+        let draggedCard = null;
+        document.querySelectorAll('.card[draggable="true"]').forEach(card => {
+            card.addEventListener('dragstart', function(e) {
+                draggedCard = this;
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => this.style.opacity = '0.4', 0);
+            });
+            
+            card.addEventListener('dragend', function() {
+                this.style.opacity = this.classList.contains('hidden-card') ? '0.4' : '1';
+                draggedCard = null;
+            });
+            
+            card.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            });
+            
+            card.addEventListener('drop', function(e) {
+                e.preventDefault();
+                if (draggedCard !== this) {
+                    const grid = document.getElementById('linksGrid');
+                    const allCards = Array.from(grid.querySelectorAll('.card'));
+                    const draggedIdx = allCards.indexOf(draggedCard);
+                    const droppedIdx = allCards.indexOf(this);
+                    
+                    if (draggedIdx < droppedIdx) {
+                        this.parentNode.insertBefore(draggedCard, this.nextSibling);
+                    } else {
+                        this.parentNode.insertBefore(draggedCard, this);
+                    }
+                    saveNewOrder(); // Відправляємо на бекенд
+                }
+            });
+        });
+
+        function saveNewOrder() {
+            const ids = Array.from(document.querySelectorAll('.card')).map(c => c.dataset.id);
+            const formData = new URLSearchParams();
+            formData.append('action', 'reorder');
+            formData.append('ordered_ids', JSON.stringify(ids));
+            
+            // Відправляємо асинхронно, щоб не перезавантажувати сторінку
+            fetch('/api/action', {
+                method: 'POST',
+                body: formData
+            });
+        }
+
+        // Базові функції
         function postAction(action, id) {
             const form = document.createElement('form');
             form.method = 'POST';
@@ -204,7 +340,6 @@
             form.submit();
         }
 
-        // Logic for icon file upload visibility
         const customIconCheckbox = document.getElementById('formUseCustomIcon');
         if (customIconCheckbox) {
             customIconCheckbox.addEventListener('change', function() {
@@ -221,6 +356,7 @@
             document.getElementById('formDescription').value = '';
             document.getElementById('formUseCustomIcon').checked = false;
             document.getElementById('formIconFile').style.display = 'none';
+            document.getElementById('formIsHidden').checked = false;
             document.getElementById('editModal').classList.add('active');
         }
 
@@ -237,10 +373,11 @@
             document.getElementById('formUseCustomIcon').checked = hasCustom;
             document.getElementById('formIconFile').style.display = hasCustom ? 'block' : 'none';
             
+            document.getElementById('formIsHidden').checked = (data.hidden === 'true');
+            
             document.getElementById('editModal').classList.add('active');
         }
 
-        // Theme Modal Logic
         function toggleBgMode() {
             const mode = document.getElementById('bgModeSelect').value;
             document.getElementById('gradientInput').style.display = mode === 'gradient' ? 'block' : 'none';
@@ -253,7 +390,7 @@
                 alert("Cannot delete default profiles!");
                 return;
             }
-            if(confirm('Delete profile "' + profileName + '"?')) {
+            if(confirm('Видалити профіль "' + profileName + '"?')) {
                 document.getElementById('deleteProfileNameInput').value = profileName;
                 document.getElementById('deleteProfileForm').submit();
             }

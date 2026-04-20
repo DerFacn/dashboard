@@ -12,12 +12,8 @@ requests.packages.urllib3.disable_warnings()
 main_bp = Blueprint('main', __name__)
 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin')
-
-# Read custom titles from environment variables, fallback to defaults
 PAGE_TITLE = os.environ.get('PAGE_TITLE', 'My Dashboard')
-DASH_TITLE = os.environ.get('DASH_TITLE', 'My resources')
 
-# Absolute paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 DATA_FILE = os.path.join(DATA_DIR, 'links.json')
@@ -39,7 +35,6 @@ def init_env():
         with open(DATA_FILE, 'w') as f:
             json.dump([], f)
             
-    # Initialize default theme settings if not present
     if not os.path.exists(SETTINGS_FILE):
         default_settings = {
             "active_profile": "Dark",
@@ -51,7 +46,6 @@ def init_env():
         with open(SETTINGS_FILE, 'w') as f:
             json.dump(default_settings, f)
             
-    # Auto-generate favicon if it doesn't exist
     favicon_path = os.path.join(STATIC_DIR, 'favicon.svg')
     if not os.path.exists(favicon_path):
         with open(favicon_path, 'w', encoding='utf-8') as f:
@@ -79,7 +73,11 @@ def save_settings(settings):
 @main_bp.route('/')
 def index():
     links = load_data()
-    groups = sorted(list(set(link.get('group', 'Other') for link in links if link.get('group'))))
+    # Показуємо приховані групи адміну, але не показуємо їх юзерам, якщо всі лінки в них приховані
+    is_admin = session.get('admin', False)
+    visible_links = links if is_admin else [l for l in links if not l.get('is_hidden')]
+    groups = sorted(list(set(link.get('group', 'Інше') for link in visible_links if link.get('group'))))
+    
     settings = load_settings()
     active_profile_name = settings.get('active_profile', 'Dark')
     theme = settings['profiles'].get(active_profile_name, settings['profiles']['Dark'])
@@ -87,9 +85,8 @@ def index():
     return render_template('index.html', 
                            links=links, 
                            groups=groups, 
-                           is_admin=session.get('admin', False),
+                           is_admin=is_admin,
                            page_title=PAGE_TITLE,
-                           dash_title=DASH_TITLE,
                            theme=theme,
                            profiles=settings['profiles'],
                            active_profile_name=active_profile_name)
@@ -104,6 +101,23 @@ def login():
 def logout():
     session.pop('admin', None)
     return redirect(url_for('main.index'))
+
+# Новий роут для швидкої перевірки статусу (працює у фоні)
+@main_bp.route('/api/status')
+def check_status():
+    url = request.args.get('url')
+    if not url:
+        return jsonify({"status": "down"})
+    try:
+        # Тайм-аут 3 секунди, ігноруємо сертифікати
+        res = requests.get(url, timeout=3, verify=False, allow_redirects=True)
+        # Якщо 404 або помилка сервера (5xx) - лежить. Якщо 2xx, 3xx або навіть 401/403 (є авторизація) - живий.
+        if res.status_code < 500 and res.status_code != 404:
+            return jsonify({"status": "up"})
+        else:
+            return jsonify({"status": "down"})
+    except Exception:
+        return jsonify({"status": "down"})
 
 @main_bp.route('/api/icon')
 def get_icon():
@@ -170,7 +184,6 @@ def api_theme():
         profile_name = request.form.get('profile_name')
         bg_mode = request.form.get('bg_mode')
         
-        # Determine background image handling
         bg_image = settings['profiles'].get(profile_name, {}).get('bg_image', '')
         if bg_mode == 'image':
             bg_file = request.files.get('bg_file')
@@ -220,9 +233,10 @@ def api_action():
         link_id = request.form.get('id') or str(uuid.uuid4())
         title = request.form.get('title')
         url = request.form.get('url')
-        group = request.form.get('group') or 'Other'
+        group = request.form.get('group') or 'Інше'
         description = request.form.get('description', '')
         use_custom = request.form.get('use_custom_icon') == 'on'
+        is_hidden = request.form.get('is_hidden') == 'on' # Отримуємо статус прихованості
         
         existing_link = next((l for l in links if l['id'] == link_id), None)
         custom_icon_filename = None
@@ -242,7 +256,8 @@ def api_action():
             'url': url,
             'group': group,
             'description': description,
-            'custom_icon': custom_icon_filename
+            'custom_icon': custom_icon_filename,
+            'is_hidden': is_hidden
         }
         
         if existing_link:
@@ -255,15 +270,20 @@ def api_action():
         link_id = request.form.get('id')
         links = [l for l in links if l['id'] != link_id]
         
-    elif action in ['move_up', 'move_down']:
-        link_id = request.form.get('id')
-        idx = next((i for i, l in enumerate(links) if l['id'] == link_id), None)
-        if idx is not None:
-            swap_idx = idx - 1 if action == 'move_up' else idx + 1
-            if 0 <= swap_idx < len(links):
-                links[idx], links[swap_idx] = links[swap_idx], links[idx]
-                for i, l in enumerate(links):
-                    l['order'] = i
+    elif action == 'reorder':
+        # Логіка для Drag and Drop (обробляється через AJAX)
+        ordered_ids_json = request.form.get('ordered_ids')
+        if ordered_ids_json:
+            try:
+                ordered_ids = json.loads(ordered_ids_json)
+                id_to_order = {link_id: idx for idx, link_id in enumerate(ordered_ids)}
+                for l in links:
+                    l['order'] = id_to_order.get(l['id'], l.get('order', 999))
+                links.sort(key=lambda x: x.get('order', 0))
+            except json.JSONDecodeError:
+                pass
+        save_data(links)
+        return jsonify({"status": "ok"})
 
     save_data(links)
     return redirect(url_for('main.index'))

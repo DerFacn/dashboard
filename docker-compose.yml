@@ -13,7 +13,6 @@ services:
       - ADMIN_PASSWORD=supersecret
       - FLASK_SECRET_KEY=my-super-secret-session-key
       # Customisation
-      - PAGE_TITLE=Home Server
-      - DASH_TITLE=My Services
+      - PAGE_TITLE=Dashboard
     command: sh -c "pip install --no-cache-dir flask gunicorn requests beautifulsoup4 werkzeug && gunicorn -w 1 -b 0.0.0.0:8000 app:app"
     restart: unless-stopped
