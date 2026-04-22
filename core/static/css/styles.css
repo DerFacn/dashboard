@@ -218,8 +218,8 @@ input:focus {
     background: var(--accent); 
     border: none; 
     color: var(--bg); 
-    width: 24px; 
-    height: 24px; 
+    width: 26px; 
+    height: 26px; 
     border-radius: 50%; 
     cursor: pointer; 
     display: flex; 
